@@ -85,9 +85,6 @@ export Connect_Name=[your unique name]
 # set location
 export Connect_Location=eastus
 
-# set application endpoint
-# export Ngsa_App_Endpoint="${Ngsa_Name}.${Ngsa_Domain_Name}"
-
 # resource group names
 export Connect_RG="${Connect_Name}-cluster-rg"
 
@@ -201,175 +198,55 @@ The `helm-config.yaml` file can be used as an override to the default values dur
 
 ```bash
 
-cd $REPO_ROOT/perf/cluster/charts/
+cd $REPO_ROOT/perf/cluster/charts
 
-# Install NGSA using the upstream ngsa image from Dockerhub
-helm install kafka ngsa -f ./ngsa/helm-config.yaml
+# Install Kafka using the provided Kafka Helm chart
+helm install kafka ./kafka -f ./kafka/values.yaml
 
-# check that all pods are up
+# check that all kafka pods are up
 kubectl get pods
 
 ```
 
-Check that the test certificates have been issued. You can check in the browser, or use curl. With the test certificates, it is expected that you get a privacy error.
+Deploy Kafka Connect workers to setup the Connect cluster.
 
 ```bash
 
-export Ngsa_Https_App_Endpoint="https://${Ngsa_App_Endpoint}"
+# Install Kafka Connect using the provided Kafka Connect Helm chart
+helm install connect ./connect -f ./connect/values.yaml
 
-# Curl the https endpoint. You should see a certificate problem. This is expected with the staging certificates from Let's Encrypt.
-curl $Ngsa_Https_App_Endpoint
+# check that all connect pods are up
+kubectl get pods -l app=cp-kafka-connect
+
+# Get the public IP of the Kafka Connect cluster
+export CONNECT_PIP=$(kubectl get svc -l app=cp-kafka-connect -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+
+# List the available connectors in the Connect cluster
+curl -H "Content-Type: application/json" -X GET http://$CONNECT_PIP:8083/connectors
+
+# Optional: Scale the Connect workers (eg: 20 workers) as needed for performance testing
+helm upgrade connect ./connect -f ./connect/values.yaml --set replicaCount=20
 
 ```
 
-After verifying that the test certs were issued, update the deployment to use the "letsencrypt-prod" ClusterIssuer to get valid certs from the Let's Encrypt production environment.
+Deploy Kafka Client to drive consistent traffic to the Kafka Connect workers.
 
 ```bash
 
-helm upgrade ngsa-aks ngsa -f ./ngsa/helm-config.yaml  --namespace ngsa --set cert.issuer=letsencrypt-prod
+cd $REPO_ROOT/perf/cluster/manifests
 
-```
+# Install Kafka client
+kubectl apply -f kafka-client.yaml
 
-Run the Validation Test
-
-> For more information on the validation test tool, see [Lode Runner](../../src/Ngsa.LodeRunner).
-
-```bash
-
-# run the tests in a container
-docker run -it --rm retaildevcrew/loderunner:beta --server $Ngsa_Https_App_Endpoint --files baseline.json
-
-```
-
-## Smoke Tests
-
-Deploy Loderunner to drive consistent traffic to the AKS cluster for monitoring.
-
-```bash
-
-cd $REPO_ROOT/IaC/AKS/cluster/charts
-
-kubectl create namespace ngsa-l8r
-
-cp ./loderunner/helm-config.example.yaml ./loderunner/helm-config.yaml
-
-helm install l8r loderunner -f ./loderunner/helm-config.yaml --namespace ngsa-l8r
-
-# Verify the pods are running
-kubectl get pods --namespace ngsa-l8r
+# SSH into the kafka client pod
+kubectl exec -it kafka-client -- /bin/bash
 
 ```
 
 ## Observability
 
-Observability is enabled through a combination of Fluent Bit to forward logs to Azure Log Analytics and queries directly to Log Analytics or via Azure Dashboards.
+N/A
 
 ### Fluent Bit Log Forwarding
 
-Deploy Fluent Bit to forward application and smoker logs to the Log Analytics instance.
-
-```bash
-
-cd $REPO_ROOT/IaC/AKS/cluster/charts
-
-kubectl create namespace fluentbit
-
-kubectl create secret generic fluentbit-secrets \
-  --namespace fluentbit \
-  --from-literal=WorkspaceId=$(az monitor log-analytics workspace show -g $Ngsa_Log_Analytics_RG -n $Ngsa_Log_Analytics_Name --query customerId -o tsv) \
-  --from-literal=SharedKey=$(az monitor log-analytics workspace get-shared-keys -g $Ngsa_Log_Analytics_RG -n $Ngsa_Log_Analytics_Name --query primarySharedKey -o tsv)
-
-helm install fluentbit fluentbit --namespace fluentbit
-
-# Verify the fluentbit pod is running
-kubectl get pod --namespace fluentbit
-
-```
-
-### Querying Log Analytics
-
-Navigate to the Log Analytics resource in the Azure portal and go to General -> Logs to explore the logs with KQL queries.
-
-Sample queries:
-
-```bash
-
-# View the latest logs from the data service
-
-ngsa_CL
-| where k_container == "ds"
-   and LogName_s == "Ngsa.RequestLog"
-| project TimeGenerated, CosmosName_s, Zone_s, CVector_s, Duration_d, StatusCode_d, Path_s
-
-# Calculate the 75th and 95th percentiles for the ngsa app response time and compare by app type (in-memory or cosmos) and zone  
-
-ngsa_CL
-| where k_container == "app"
-   and k_app in ('ngsa-cosmos','ngsa-memory')
-   and LogName_s == "Ngsa.RequestLog"
-| summarize percentile(Duration_d, 75), percentile(Duration_d, 95) by Zone_s, k_app
-| extend Zone=Zone_s, 75th=round(percentile_Duration_d_75,2), 95th=round(percentile_Duration_d_95,2), AppType=k_app
-| project AppType, Zone, 75th, 95th
-| order by AppType, Zone asc
-
-```
-
-## AKS Cluster using automated script
-
-With this script a cluster can be deployed in AKS (uses the same steps above).
-The script is self-contained, meaning, it won't change the user-environment (e.g. selected Azure Subscription or ubernetes context) unless it's explicitly specified.
-It is located [here](./scripts/create-cluster-env.bash).
-Script Usage:
-
-```bash
-    ./create-cluster-env.bash --ngsa-prefix basename123 [Optional Args/Flags]
-    ./create-cluster-env.bash -s azure-subs -n basename123 [Optional Args/Flags]
-
-Required args:
-    -n | --ngsa-prefix BASE_NAME    This will be the NGSA prefix for all resources
-                                    Do not include punctuation - only use a-z and 0-9
-                                    must be at least 5 characters long
-                                    must start with a-z (only lowercase)
-Optional args:
-    -s | --subscription AZ_SUB      Azure Subscription Name or ID
-    -e | --env ENVIRONMENT          Environemnt Type. Default: dev (See README.md for other values)
-    -d | --domain DOMAIN_NAME       Registered Domain Name. Default: nip.io (Requires --email)
-    -m | --email EMAIL_DOMAIN       Required Email if a '--domain' is given
-    -l | --location LOCATION        Location where the resources will be created. Default: westus2
-    -k | --k8s-ver K8S_VERSION      Kubernetes version used. Default: 1.18.8
-                                    Use 'az aks get-versions -l westus2 -o table' to get supported versions
-    -c | --node-count NODE_COUNT    Cluster Node Count. Default: 3
-    -r | --dns-rg DNS_RG            DNS Resource group name. Default: dns-rg
-    -i | --cosmos-key COSMOS_KEY
-    -u | --cosmos-url COSMOS_URL    In case users want to use their own CosmosDBBoth Key and URL are empty by default.
-Optional Flag:
-    -x | --set-k8s-context          Sets the kubernetes context for current user in /home/kushal/.kube/config
-    -h | --help                     Show the usage
-```
-
-Example usage:
-
-- Create a cluster with selected Azure subscription
-
-  `./create-cluster-env.bash --ngsa-prefix basengsa`
-- Create a cluster with specific Azure subscription
-
-  `./create-cluster-env.bash -s azure-subscription-name -n basengsa`
-- Create a cluster in a specific location
-
-  `./create-cluster-env.bash -n basengsa -l centralus`
-- Create a cluster and set the current k8s context
-
-  `./create-cluster-env.bash --subscription "az-sub" -n basengsa --set-k8s-context`
-- Create a cluster with specific environmen type
-
-  `./create-cluster-env.bash --subscription "az-sub" -n ultrangsa -d abcd.efg --email user@email.org --env stage`
-- Create a cluster with specific domain name
-
-  `./create-cluster-env.bash --subscription "az-sub" -n basengsa -d abcd.efg --email user@email.org`
-- Create a cluster with existing CosmosDB
-
-  `./create-cluster-env.bash -s az-sub -n ngsatest -d abcd.ms -l centralus -i AkI=FAKE=KEY=oGk=SOME=FAKE=KEY=Zh7Iad703gWwBb0P=YET=ANOTHER=FAKE=KEY=w0Zubg== -u https://sample-cosmos-db.documents.zure.com:443/`
-- Create a cluster with specific node count
-
-  `./create-cluster-env.bash --subscription "az-sub" -n basengsa -c 6 -x`
+N/A
