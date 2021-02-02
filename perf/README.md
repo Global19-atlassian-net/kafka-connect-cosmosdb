@@ -21,17 +21,6 @@ The following instructions allow the deployment of Kafka with Connect Workers in
 - kubectl (install by using `sudo az aks install-cli`)
 - Helm v3 ([Install Instructions](https://helm.sh/docs/intro/install/))
 
-### Note on Rate Limits
-
->[Let's Encrypt](https://letsencrypt.org/) is used to issue TLS certificates.  Let's Encrypt has [rate limit policies](https://letsencrypt.org/docs/rate-limits/) that could be triggered if you run multiple deployments in sequence.  Please take note and be careful not to exceed their rate thresholds.
-
-### DNS, SSL/TLS Prerequisites
-
- A domain name and SSL/TLS certificates are required for HTTPS access over the internet.
-
-- Registered domain with permissions to update nameservers
-- Azure subscription with permissions to create a DNS Zone
-
 ### Setup
 
 Fork this repo and clone to your local machine
@@ -68,7 +57,7 @@ az account set -s {subscription name or Id}
 
 ```
 
-This walkthrough will create resource groups, a Cosmos DB instance, Azure DNS entry(if specified) and an Azure Kubernetes Service (AKS) cluster. An automation script is available which can be used instead of this walkthrough. Script usage instruction is found [here](#aks-cluster-using-automated-script)
+This walkthrough will create resource groups and an Azure Kubernetes Service (AKS) cluster. An automation script is available which can be used instead of this walkthrough.
 
 #### Choose a unique DNS name
 
@@ -78,22 +67,7 @@ This walkthrough will create resource groups, a Cosmos DB instance, Azure DNS en
 # do not include punctuation - only use a-z and 0-9
 # must be at least 5 characters long
 # must start with a-z (only lowercase)
-export Ngsa_Base_Name=[your unique name]
-# examples: pre, test, stage, prod, and dev
-export Ngsa_Env=[your environment name]
-
-# Set main resource name
-export Ngsa_Name="${Ngsa_Base_Name}-${Ngsa_Env}"
-
-# Set email to register with Let's Encrypt
-export Ngsa_Email=[your email address]
-
-# Set your registered domain name.
-# example: export Ngsa_Domain_Name=cse.ms
-export Ngsa_Domain_Name=[your domain name]
-
-### if true, change Ngsa_Name
-az cosmosdb check-name-exists -n "${Ngsa_Name}-cosmos"
+export Connect_Name=[your unique name]
 
 ```
 
@@ -103,36 +77,22 @@ az cosmosdb check-name-exists -n "${Ngsa_Name}-cosmos"
 >
 > If you use an existing resource group, please make sure to apply resource locks to avoid accidentally deleting resources
 
-- You will create 3 resource groups
-  - One for AKS and Azure Monitor
-  - One for Cosmos DB
-  - One for Log Analytics
+- You will create a resource group
+  - One for AKS
 
 ```bash
 
 # set location
-export Ngsa_Location=westus2
+export Connect_Location=eastus
 
 # set application endpoint
-export Ngsa_App_Endpoint="${Ngsa_Name}.${Ngsa_Domain_Name}"
+# export Ngsa_App_Endpoint="${Ngsa_Name}.${Ngsa_Domain_Name}"
 
 # resource group names
-export Imdb_Name="${Ngsa_Name}-cosmos"
-export Ngsa_App_RG="${Ngsa_Name}-app-rg"
-export Ngsa_Log_Analytics_RG="${Ngsa_Name}-log-rg"
-export Imdb_RG="${Ngsa_Name}-cosmos-rg"
-
-# export Cosmos DB env vars
-# these will be explained in the Cosmos DB setup step
-export Imdb_Location=$Ngsa_Location
-export Imdb_DB=imdb
-export Imdb_Col=movies
-export Imdb_RW_Key='az cosmosdb keys list -n $Imdb_Name -g $Imdb_RG --query primaryMasterKey -o tsv'
+export Connect_RG="${Connect_Name}-cluster-rg"
 
 # create the resource groups
-az group create -n $Ngsa_App_RG -l $Ngsa_Location
-az group create -n $Ngsa_Log_Analytics_RG -l $Ngsa_Location
-az group create -n $Imdb_RG -l $Imdb_Location
+az group create -n $Connect_RG -l $Connect_Location
 
 ```
 
@@ -142,7 +102,7 @@ Set local variables to use in AKS deployment
 
 ```bash
 
-export Ngsa_AKS_Name="${Ngsa_Name}-aks"
+export Connect_AKS_Name="${Connect_Name}-aks"
 
 ```
 
@@ -150,9 +110,9 @@ Determine the latest version of Kubernetes supported by AKS. It is recommended t
 
 ```bash
 
-az aks get-versions -l $Ngsa_Location -o table
+az aks get-versions -l $Connect_Location -o table
 
-export Ngsa_K8S_VER=1.18.8
+export Connect_K8S_VER=1.19.3
 
 ```
 
@@ -161,14 +121,14 @@ Create and connect to the AKS cluster.
 ```bash
 
 # this step usually takes 2-4 minutes
-az aks create --name $Ngsa_AKS_Name --resource-group $Ngsa_App_RG --location $Ngsa_Location --enable-cluster-autoscaler --min-count 3 --max-count 6 --node-count 3 --kubernetes-version $Ngsa_K8S_VER --no-ssh-key
+az aks create --name $Connect_AKS_Name --resource-group $Connect_RG --location $Connect_Location --enable-cluster-autoscaler --min-count 3 --max-count 6 --node-count 3 --kubernetes-version $Connect_K8S_VER --no-ssh-key
 
 # note: if you see the following failure, navigate to your .azure\ directory
 # and delete the file "aksServicePrincipal.json":
 #    Waiting for AAD role to propagate[################################    ]  90.0000%Could not create a
 #    role assignment for ACR. Are you an Owner on this subscription?
 
-az aks get-credentials -n $Ngsa_AKS_Name -g $Ngsa_App_RG
+az aks get-credentials -n $Connect_AKS_Name -g $Connect_RG
 
 kubectl get nodes
 
@@ -228,123 +188,26 @@ Add the required helm repositories
 ```bash
 
 helm repo add stable https://charts.helm.sh/stable
-helm repo add kedacore https://kedacore.github.io/charts
-helm repo add jetstack https://charts.jetstack.io
+helm repo add confluentinc https://confluentinc.github.io/cp-helm-charts/
 helm repo update
 
 ```
 
-## Install Istio Service Mesh into the cluster
+## Deploy Kafka and Kafka Connect with Helm
 
-Specify the Istio version that will be leveraged throughout these instructions. Note: If using a macOS device, make sure to set ARCH to `osx`.
-
-```bash
-
-export ISTIO_VERSION=1.7.3
-export ARCH=linux-amd64
-curl -sL "https://github.com/istio/istio/releases/download/$ISTIO_VERSION/istioctl-$ISTIO_VERSION-$ARCH.tar.gz" | tar xz
-
-```
-
-Copy the istioctl client binary to the standard user program location in your PATH
-
-```bash
-
-sudo mv ./istioctl /usr/local/bin/istioctl
-sudo chmod +x /usr/local/bin/istioctl
-
-```
-
-Install the Istio Operator and Components on AKS
-
-```bash
-
-istioctl operator init
-kubectl create namespace istio-system
-kubectl apply -f $REPO_ROOT/IaC/AKS/cluster/manifests/istio/istio.aks.yaml
-
-# the istio resources will take about a minute to be installed
-
-```
-
-Validate the Istio installation
-
-```bash
-
-kubectl get all --namespace istio-system
-
-```
-
-You should see the following components:
-
-- `istio*` - the Istio components
-- `jaeger-*`, `tracing`, and `zipkin` - tracing addon
-- `prometheus` - metrics addon
-- `grafana` - analytics and monitoring dashboard addon
-- `kiali` - service mesh dashboard addon
-
-Enable automatic sidecar injection in the ngsa namespace:
-
-```bash
-
-kubectl create namespace ngsa
-kubectl label namespace ngsa istio-injection=enabled
-
-```
-
-Get the public IP of the Istio Ingress Gateway.
-
-```bash
-
-export INGRESS_PIP=$(kubectl --namespace istio-system  get svc -l istio=ingressgateway -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
-
-```
-
-## Deploy NGSA Secrets
-
-```bash
-
-kubectl create secret generic ngsa-secrets \
-  --namespace ngsa \
-  --from-literal=CosmosDatabase=$Imdb_DB \
-  --from-literal=CosmosCollection=$Imdb_Col \
-  --from-literal=CosmosKey=$(az cosmosdb keys list -n $Imdb_Name -g $Imdb_RG --query primaryReadonlyMasterKey -o tsv) \
-  --from-literal=CosmosUrl=https://${Imdb_Name}.documents.azure.com:443/
-
-```
-
-## Deploy NGSA with Helm
-
-The NGSA application has been packed into a Helm chart for deployment into the cluster. The following instructions will walk you through the manual process of deployment of the helm chart and is recommended for development and testing. Alternatively, the helm chart can be deployed in a GitOps CICD approach. GitOps allows the automated deployment of the application to the cluster using FluxCD in which the configuration of the application is stored in Git.([NGSA-CD](https://github.com/retaildevcrews/ngsa-cd)).
-
-```bash
-cd $HOME
-
-git clone git@github.com:retaildevcrews/ngsa-cd.git
-
-export CHART_REPO=$HOME/ngsa-cd
-
-cd $CHART_REPO/charts/ngsa
-
-# Use the helm-config.yaml file to configure the deployment
-envsubst < helm-config.example.yaml > helm-config.yaml
-
-```
+Kafka and Kafka Connect have been packed into Helm charts for deployment into the cluster. The following instructions will walk you through the manual process of deployment of the helm chart and is recommended for development and testing.
 
 The `helm-config.yaml` file can be used as an override to the default values during the helm install.
 
 ```bash
 
-cd $CHART_REPO/charts/
+cd $REPO_ROOT/perf/cluster/charts/
 
 # Install NGSA using the upstream ngsa image from Dockerhub
-# Start by using the "letsencrypt-staging" ClusterIssuer to get test certs from the Let's Encrypt staging environment.
-helm install ngsa-aks ngsa -f ./ngsa/helm-config.yaml --namespace ngsa --set cert.issuer=letsencrypt-staging
+helm install kafka ngsa -f ./ngsa/helm-config.yaml
 
-# check the version endpoint
-# you may get a timeout error, if so, just retry
-
-http ${Ngsa_App_Endpoint}/version
+# check that all pods are up
+kubectl get pods
 
 ```
 
