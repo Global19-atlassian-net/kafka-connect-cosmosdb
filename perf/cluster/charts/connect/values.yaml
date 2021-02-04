@@ -35,13 +35,13 @@ configurationOverrides:
   "config.storage.replication.factor": "3"
   "offset.storage.replication.factor": "3"
   "status.storage.replication.factor": "3"
-  "group.id": "connect-cluster"
+  "group.id": "cosmos-connect-cluster"
   "log4j.loggers": "org.apache.kafka=INFO,org.reflections=ERROR,com.azure.cosmos.kafka=DEBUG"
-  "config.storage.topic": "connect-configs"
-  "offset.storage.topic": "docker-connect-offsets"
+  "config.storage.topic": "cosmos-connect-configs"
+  "offset.storage.topic": "cosmos-connect-offsets"
 
 ## Kafka Connect JVM Heap Option
-heapOptions: "-Xms512M -Xmx512M"
+heapOptions: "-Xms512M -Xmx2g"
 
 ## Additional env variables
 ## CUSTOM_SCRIPT_PATH is the path of the custom shell script to be ran mounted in a volume
@@ -52,16 +52,14 @@ customEnv:
   CONNECT_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
 
 resources:
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #  cpu: 100m
-  #  memory: 128Mi
-   requests:
-    cpu: 50m
-  #  memory: 128Mi
+  # Limits based on the Connect Performance Verification Guide defined in Page 19:
+  # https://assets.confluent.io/m/28c7ffcc359a13c0/original/20200325-VIP_Connect-Verification_Guide.pdf
+  limits:
+    cpu: 2666m
+    memory: 2Gi
+  requests:
+    cpu: 2666m
+    memory: 2Gi
 
 ## Custom pod annotations
 podAnnotations: {}

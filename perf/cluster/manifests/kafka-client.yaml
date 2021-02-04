@@ -19,3 +19,4 @@ spec:
       - bootstrap.servers=kafka-cp-kafka-headless:9092
       - buffer.memory=67108864
       - batch.size=8196
+  restartPolicy: Never

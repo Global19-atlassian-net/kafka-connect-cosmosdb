@@ -118,7 +118,7 @@ Create and connect to the AKS cluster.
 ```bash
 
 # this step usually takes 2-4 minutes
-az aks create --name $Connect_AKS_Name --resource-group $Connect_RG --location $Connect_Location --enable-cluster-autoscaler --min-count 3 --max-count 6 --node-count 3 --kubernetes-version $Connect_K8S_VER --no-ssh-key
+az aks create --name $Connect_AKS_Name --resource-group $Connect_RG --location $Connect_Location --enable-cluster-autoscaler --min-count 3 --max-count 6 --node-count 3 --kubernetes-version $Connect_K8S_VER --no-ssh-key -s Standard_F4s_v2
 
 # note: if you see the following failure, navigate to your .azure\ directory
 # and delete the file "aksServicePrincipal.json":
@@ -213,7 +213,7 @@ Deploy Kafka Connect workers to setup the Connect cluster.
 ```bash
 
 # Install Kafka Connect using the provided Kafka Connect Helm chart
-helm install connect ./connect -f ./connect/values.yaml
+helm install connect ./connect -f ./connect/values.yaml 
 
 # check that all connect pods are up
 kubectl get pods -l app=cp-kafka-connect
@@ -224,8 +224,8 @@ export CONNECT_PIP=$(kubectl get svc -l app=cp-kafka-connect -o jsonpath='{.item
 # List the available connectors in the Connect cluster
 curl -H "Content-Type: application/json" -X GET http://$CONNECT_PIP:8083/connectors
 
-# Optional: Scale the Connect workers (eg: 20 workers) as needed for performance testing
-helm upgrade connect ./connect -f ./connect/values.yaml --set replicaCount=20
+# Optional: Scale the Connect workers (eg: 3 workers) as needed for performance testing
+helm upgrade connect ./connect -f ./connect/values.yaml --set replicaCount=3
 
 ```
 
@@ -235,11 +235,8 @@ Deploy Kafka Client to drive consistent traffic to the Kafka Connect workers.
 
 cd $REPO_ROOT/perf/cluster/manifests
 
-# Install Kafka client
+# Install Kafka perf client
 kubectl apply -f kafka-client.yaml
-
-# SSH into the kafka client pod
-kubectl exec -it kafka-client -- /bin/bash
 
 ```
 
@@ -248,54 +245,62 @@ kubectl exec -it kafka-client -- /bin/bash
 Monitor Kubernetes Cluster with Prometheus and Grafana using Helm.
 
 - Validate and update Helm Chart repository in Helm Configuration:
-  ```bash
 
-  # Validare repository url for stable: https://charts.helm.sh/stable
-  helm repo update
-  helm repo list
-  ```
+```bash
+
+helm repo update
+helm repo list
+
+```
 
 - It is recommended to install the Prometheus operator in a separate namespace, as it is easy to manage. Create a new namespace called monitoring:
-  ```bash
 
-  kubectl create ns monitoring
-  ```
+```bash
+
+kubectl create ns monitoring
+
+```
 
 - Install Prometheus & Grafana in the monitoring namespace of the cluster:
-  ```bash
 
-  helm install prometheus stable/prometheus --namespace monitoring
-  helm install grafana stable/grafana --namespace monitoring
+```bash
 
-  # Validate pods running in namespace monitoring
-  kubectl --namespace monitoring get pods
-  ```
+helm install prometheus stable/prometheus --namespace monitoring
+helm install grafana stable/grafana --namespace monitoring
+
+# Validate pods running in namespace monitoring
+kubectl --namespace monitoring get pods
+
+```
 
 - Get the Prometheus server URL to visit by running these commands:
-  ```bash
+  
+```bash
 
-  export POD_NAME=$(kubectl get pods --namespace monitoring -l "app=prometheus,component=server" -o jsonpath="{.items[0].metadata.name}")
-  kubectl --namespace monitoring port-forward $POD_NAME 9090
-  ```
+export POD_NAME=$(kubectl get pods --namespace monitoring -l "app=prometheus,component=server" -o jsonpath="{.items[0].metadata.name}")
+kubectl --namespace monitoring port-forward $POD_NAME 9090
+
+```
 
 - Get the Grafana URL to visit by running these commands:
-  ```bash
 
-  export POD_NAME=$(kubectl get pods --namespace monitoring -l "app.kubernetes.io/name=grafana,app.kubernetes.io/instance=grafana" -o jsonpath="{.items[0].metadata.name}")
-  kubectl --namespace monitoring port-forward $POD_NAME 3000
-  ```
-  Get Grafana admin password:
-  ```bash
-  kubectl get secret --namespace monitoring grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
-  ```
+```bash
+
+export POD_NAME=$(kubectl get pods --namespace monitoring -l "app.kubernetes.io/name=grafana,app.kubernetes.io/instance=grafana" -o jsonpath="{.items[0].metadata.name}")
+kubectl --namespace monitoring port-forward $POD_NAME 3000
+
+```
+
+Get the Grafana admin password:
+
+```bash
+
+kubectl get secret --namespace monitoring grafana -o jsonpath="{.data.admin-password}" | base64 --decode ; echo
+
+```
 
 - Login to Grafana by visting url `http://localhost:3000` and log in with the password obtained in previous step.
 
 - Add Prometheus as Data Source in Grafana
 
 - Import [Confluent Open Source Dashboard](https://grafana.com/grafana/dashboards/11773) in Grafana and configure `Prometheus` as Datasource.
-
-
-### Fluent Bit Log Forwarding
-
-N/A

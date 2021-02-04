@@ -27,14 +27,14 @@ cp-zookeeper:
   securityContext: 
     runAsUser: 0
 
-  resources:
+  resources: {}
   ## If you do want to specify resources, uncomment the following lines, adjust them as necessary,
   ## and remove the curly braces after 'resources:'
   #  limits:
   #   cpu: 100m
   #   memory: 128Mi
-    requests:
-     cpu: 100m
+    # requests:
+    #  cpu: 100m
   #   memory: 128Mi
 
 ## ------------------------------------------------------
@@ -55,14 +55,14 @@ cp-kafka:
     # storageClass: ""
     size: 5Gi
     disksPerBroker: 1
-  resources:
+  resources: {}
   ## If you do want to specify resources, uncomment the following lines, adjust them as necessary,
   ## and remove the curly braces after 'resources:'
   #  limits:
   #   cpu: 100m
   #   memory: 128Mi
-    requests:
-     cpu: 100m
+    # requests:
+    #  cpu: 100m
   #   memory: 128Mi
   securityContext: 
     runAsUser: 0
@@ -79,14 +79,14 @@ cp-schema-registry:
   imagePullSecrets:
   #  - name: "regcred"
   heapOptions: "-Xms512M -Xmx512M"
-  resources:
+  resources: {}
   ## If you do want to specify resources, uncomment the following lines, adjust them as necessary,
   ## and remove the curly braces after 'resources:'
   #  limits:
   #   cpu: 100m
   #   memory: 128Mi
-    requests:
-     cpu: 100m
+    # requests:
+    #  cpu: 100m
   #   memory: 128Mi
 
 ## ------------------------------------------------------
@@ -101,14 +101,14 @@ cp-kafka-rest:
   imagePullSecrets:
   #  - name: "regcred"
   heapOptions: "-Xms512M -Xmx512M"
-  resources:
+  resources: {}
   ## If you do want to specify resources, uncomment the following lines, adjust them as necessary,
   ## and remove the curly braces after 'resources:'
   #  limits:
   #   cpu: 100m
   #   memory: 128Mi
-    requests:
-     cpu: 100m
+    # requests:
+    #  cpu: 100m
   #   memory: 128Mi
 
 ## ------------------------------------------------------
@@ -152,7 +152,7 @@ cp-ksql-server:
 ## Control Center
 ## ------------------------------------------------------
 cp-control-center:
-  enabled: false
+  enabled: true
   image: confluentinc/cp-enterprise-control-center
   imageTag: 6.0.1
   ## Optionally specify an array of imagePullSecrets. Secrets must be manually created in the namespace.
