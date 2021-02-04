@@ -198,13 +198,14 @@ The `helm-config.yaml` file can be used as an override to the default values dur
 
 ```bash
 
-cd $REPO_ROOT/perf/cluster/charts
+cd $REPO_ROOT/perf/cluster/manifests
 
-# Install Kafka using the provided Kafka Helm chart
-helm install kafka ./kafka -f ./kafka/values.yaml
+# Install Kafka using the Kafka Helm chart with local config file
+kubectl create namespace kafka
+helm install kafka confluentinc/cp-helm-charts -f kafka-helm-config.yaml  -n kafka
 
 # check that all kafka pods are up
-kubectl get pods
+kubectl get pods -n kafka
 
 ```
 
@@ -212,20 +213,23 @@ Deploy Kafka Connect workers to setup the Connect cluster.
 
 ```bash
 
+cd $REPO_ROOT/perf/cluster/charts
+
 # Install Kafka Connect using the provided Kafka Connect Helm chart
-helm install connect ./connect -f ./connect/values.yaml 
+kubectl create namespace connect
+helm install connect ./connect -f ./connect/helm-config.yaml -n connect
 
 # check that all connect pods are up
-kubectl get pods -l app=cp-kafka-connect
+kubectl get pods -n connect
 
 # Get the public IP of the Kafka Connect cluster
-export CONNECT_PIP=$(kubectl get svc -l app=cp-kafka-connect -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+export CONNECT_PIP=$(kubectl get svc -n connect -l app=cp-kafka-connect -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
 
 # List the available connectors in the Connect cluster
 curl -H "Content-Type: application/json" -X GET http://$CONNECT_PIP:8083/connectors
 
 # Optional: Scale the Connect workers (eg: 3 workers) as needed for performance testing
-helm upgrade connect ./connect -f ./connect/values.yaml --set replicaCount=3
+helm upgrade connect ./connect -f ./connect/helm-config.yaml -n connect --set replicaCount=3
 
 ```
 
@@ -236,7 +240,7 @@ Deploy Kafka Client to drive consistent traffic to the Kafka Connect workers.
 cd $REPO_ROOT/perf/cluster/manifests
 
 # Install Kafka perf client
-kubectl apply -f kafka-client.yaml
+kubectl apply -f kafka-client.yaml -n kafka
 
 ```
 
@@ -244,16 +248,7 @@ kubectl apply -f kafka-client.yaml
 
 Monitor Kubernetes Cluster with Prometheus and Grafana using Helm.
 
-- Validate and update Helm Chart repository in Helm Configuration:
-
-```bash
-
-helm repo update
-helm repo list
-
-```
-
-- It is recommended to install the Prometheus operator in a separate namespace, as it is easy to manage. Create a new namespace called monitoring:
+It is recommended to install the Prometheus operator in a separate namespace, as it is easy to manage. Create a new namespace called monitoring:
 
 ```bash
 
@@ -265,11 +260,11 @@ kubectl create ns monitoring
 
 ```bash
 
-helm install prometheus stable/prometheus --namespace monitoring
-helm install grafana stable/grafana --namespace monitoring
+helm install prometheus stable/prometheus -n monitoring
+helm install grafana stable/grafana -n monitoring
 
 # Validate pods running in namespace monitoring
-kubectl --namespace monitoring get pods
+kubectl get pods -n monitoring
 
 ```
 
