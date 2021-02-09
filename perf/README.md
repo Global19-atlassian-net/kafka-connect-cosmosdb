@@ -202,7 +202,7 @@ cd $REPO_ROOT/perf/cluster/manifests
 
 # Install Kafka using the Kafka Helm chart with local config file
 kubectl create namespace kafka
-helm install kafka confluentinc/cp-helm-charts -f kafka-helm-config.yaml  -n kafka
+helm install kafka confluentinc/cp-helm-charts -f kafka-helm-config.yaml -n kafka
 
 # check that all kafka pods are up
 kubectl get pods -n kafka
@@ -233,14 +233,14 @@ helm upgrade connect ./connect -f ./connect/helm-config.yaml -n connect --set re
 
 ```
 
-Deploy Kafka Client to drive consistent traffic to the Kafka Connect workers.
+Deploy Kafka Sink Performance Client to push messages data to a Kafka topic.
 
 ```bash
 
-cd $REPO_ROOT/perf/cluster/manifests
-
-# Install Kafka perf client
-kubectl apply -f kafka-client.yaml -n kafka
+# Install Sink perf client to send 10 messages per second to connect-test topic
+helm install sinkperf ./sink-perf -n kafka \
+  --set params.topic=connect-test \
+  --set params.throughput=10
 
 ```
 
@@ -252,7 +252,7 @@ It is recommended to install the Prometheus operator in a separate namespace, as
 
 ```bash
 
-kubectl create ns monitoring
+kubectl create namespace monitoring
 
 ```
 
